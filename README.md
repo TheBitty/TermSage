@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <strong>The intelligent terminal interface for Ollama language models</strong>
+  <strong>The AI Terminal Wizard</strong>
 </p>
 
 <p align="center">
@@ -22,9 +22,9 @@
 
 ## Overview
 
-✨ TermSage is a powerful command-line interface that lets you interact with Ollama language models directly from your terminal. With intelligent auto-completion, a rich user experience, and seamless model management, TermSage makes AI accessible right where you work. ✨
+✨ TermSage is a powerful command-line interface that lets you interact with Ollama language models directly from your terminal. And use them for intelligent auto-completion✨
 
-![TermSage - The AI Terminal Wizard]
+
 
 ## Key Features
 
