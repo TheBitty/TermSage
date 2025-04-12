@@ -50,8 +50,13 @@ TermSage is a powerful command-line interface that lets you interact with Ollama
 
 2. Create a virtual environment:
    ```bash
+   # On macOS/Linux:
+   python3 -m venv venv
+   source venv/bin/activate
+   
+   # On Windows:
    python -m venv venv
-   source venv/bin/activate  # On Windows, use: venv\Scripts\activate
+   venv\Scripts\activate
    ```
 
 3. Install dependencies:
@@ -63,11 +68,32 @@ TermSage is a powerful command-line interface that lets you interact with Ollama
 
 ### Starting TermSage
 
-Launch from your terminal:
-
+**Easiest Method:**
 ```bash
+# From the root directory (with virtual environment activated):
+python3 run_termsage.py  # On macOS/Linux
+python run_termsage.py   # On Windows
+```
+
+Or make it executable (on macOS/Linux):
+```bash
+chmod +x run_termsage.py
+./run_termsage.py
+```
+
+**Alternative Method:**
+```bash
+# Make sure you're in the root TermSage directory (not inside src)
+# Make sure the virtual environment is activated (venv)
+
+# On macOS/Linux:
+python3 -m src.main
+
+# On Windows:
 python -m src.main
 ```
+
+> **Important:** Always run TermSage from the root project directory, not from inside the src folder.
 
 On first launch, TermSage will:
 - Check if Ollama is running (starting it automatically by default)
@@ -207,6 +233,35 @@ The temperature parameter controls response randomness:
 
 ### Common Issues
 
+#### Python Command Not Found
+
+If you see `zsh: command not found: python`, this means Python isn't in your PATH. This is common on macOS.
+
+**Solution**: Use `python3` instead of `python`:
+
+```bash
+# Instead of:
+python -m venv venv
+
+# Use:
+python3 -m venv venv
+```
+
+#### Module Not Found Error
+
+If you see `ModuleNotFoundError: No module named 'src'` when running `python -m src.main`:
+
+**Cause**: You might be running the command from inside the `src` directory.
+
+**Solution**: 
+1. Make sure you're in the root project directory (TermSage folder)
+2. Run the command from there:
+```bash
+cd ~/path/to/TermSage  # Go to root directory
+source venv/bin/activate  # Activate virtual environment
+python3 -m src.main  # Run the application
+```
+
 #### Ollama Not Running
 ```
 Ollama service is not running.
@@ -235,6 +290,25 @@ ollama pull mistral
 First-time model loading can be slow. Consider:
 - Using smaller models for faster responses
 - Keeping the same model active to avoid reloading
+
+### Alternative Ways to Run TermSage
+
+If you're having issues, try the simplest method:
+
+```bash
+# From the root TermSage directory with virtual env activated:
+python3 run_termsage.py  # On macOS/Linux
+python run_termsage.py   # On Windows
+```
+
+Or you can run the main.py file directly:
+
+```bash
+# From the root TermSage directory:
+cd src
+python3 main.py  # On macOS/Linux
+python main.py   # On Windows
+```
 
 ## Advanced Usage
 
