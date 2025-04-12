@@ -7,8 +7,7 @@ TermSage command-line interface.
 
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.formatted_text import HTML
-import os
-from typing import List, Dict, Any, Callable, Optional, Iterable, Tuple
+from typing import List, Dict, Callable, Optional, Iterable
 
 # Avoid circular imports
 OllamaModelGetterType = Callable[[], List[Dict[str, str]]]
@@ -17,7 +16,7 @@ OllamaModelGetterType = Callable[[], List[Dict[str, str]]]
 class TermSageCompleter(Completer):
     """
     Context-aware command auto-completer for TermSage.
-    
+
     This class handles command suggestions based on the input context,
     providing relevant completions for models, commands, and parameters.
     """
@@ -25,32 +24,32 @@ class TermSageCompleter(Completer):
     def __init__(self, get_ollama_models_func: Optional[OllamaModelGetterType] = None):
         """
         Initialize the completer with commands and model getter function.
-        
+
         Args:
             get_ollama_models_func: Function to get available Ollama models
         """
         self.get_ollama_models = get_ollama_models_func
-        
+
         # Base commands with descriptions
         self.base_commands = {
-            'exit': 'Exit TermSage',
-            'quit': 'Exit TermSage',
-            'help': 'Show available commands and help',
-            'list': 'List available models',
-            'clear': 'Clear the screen',
-            'model': 'Set the model to use',
-            'temperature': 'Set the temperature for text generation',
-            'chat': 'Start an interactive chat session',
-            'generate': 'Generate text from a prompt',
-            'history': 'Show command history',
-            'reset': 'Reset the chat history',
-            'save': 'Save the chat history to a file',
-            'load': 'Load a model',
+            "exit": "Exit TermSage",
+            "quit": "Exit TermSage",
+            "help": "Show available commands and help",
+            "list": "List available models",
+            "clear": "Clear the screen",
+            "model": "Set the model to use",
+            "temperature": "Set the temperature for text generation",
+            "chat": "Start an interactive chat session",
+            "generate": "Generate text from a prompt",
+            "history": "Show command history",
+            "reset": "Reset the chat history",
+            "save": "Save the chat history to a file",
+            "load": "Load a model",
         }
-        
+
         # Temperature suggestions
-        self.temperature_values = ['0.1', '0.3', '0.5', '0.7', '0.9', '1.0']
-        
+        self.temperature_values = ["0.1", "0.3", "0.5", "0.7", "0.9", "1.0"]
+
         # Command history for ranking suggestions
         self.command_history = []
         self.max_history = 100
@@ -58,38 +57,36 @@ class TermSageCompleter(Completer):
     def record_command(self, command: str) -> None:
         """
         Record a command to improve future suggestions.
-        
+
         Args:
             command: The command that was used
         """
         if command in self.command_history:
             self.command_history.remove(command)
         self.command_history.insert(0, command)
-        
+
         # Trim history if needed
         if len(self.command_history) > self.max_history:
-            self.command_history = self.command_history[:self.max_history]
+            self.command_history = self.command_history[: self.max_history]
 
-    def get_completions(
-        self, document, complete_event
-    ) -> Iterable[Completion]:
+    def get_completions(self, document, complete_event) -> Iterable[Completion]:
         """
         Get context-aware completions based on the current input.
-        
+
         Args:
             document: The document (input text) to complete
             complete_event: Event that triggered the completion
-            
+
         Returns:
             Iterable of Completion objects
         """
         text = document.text.lstrip()
-        
+
         # Split the input text to understand context
         words = text.split()
         word_count = len(words)
         word_before_cursor = document.get_word_before_cursor()
-        
+
         # Handle empty input - suggest base commands
         if not text or not word_count:
             for cmd, description in sorted(self.base_commands.items()):
@@ -100,12 +97,12 @@ class TermSageCompleter(Completer):
                     style="class:completion",
                 )
             return
-        
+
         # Context: After 'model' command, suggest Ollama models
-        if word_count == 1 and words[0] == 'model':
+        if word_count == 1 and words[0] == "model":
             models = self._get_models()
             for model in models:
-                model_name = model.get('name', '')
+                model_name = model.get("name", "")
                 model_meta = f"Size: {model.get('size', 'Unknown')}"
                 yield Completion(
                     model_name,
@@ -114,15 +111,15 @@ class TermSageCompleter(Completer):
                     style="class:completion.model",
                 )
             return
-        
+
         # Context: After model selection, suggest tags
-        if word_count == 2 and words[0] == 'model':
+        if word_count == 2 and words[0] == "model":
             models = self._get_models()
             selected_model = words[1]
-            
+
             for model in models:
-                if model.get('name') == selected_model:
-                    tag = model.get('tag', '')
+                if model.get("name") == selected_model:
+                    tag = model.get("tag", "")
                     if tag:
                         yield Completion(
                             tag,
@@ -131,9 +128,9 @@ class TermSageCompleter(Completer):
                             style="class:completion.tag",
                         )
             return
-        
+
         # Context: After 'temperature' command, suggest common values
-        if word_count == 1 and words[0] == 'temperature':
+        if word_count == 1 and words[0] == "temperature":
             for temp in self.temperature_values:
                 yield Completion(
                     temp,
@@ -142,7 +139,7 @@ class TermSageCompleter(Completer):
                     style="class:completion.temperature",
                 )
             return
-        
+
         # Default: Suggest base commands that match the prefix
         for cmd, description in sorted(self.base_commands.items()):
             if cmd.startswith(word_before_cursor):
@@ -156,7 +153,7 @@ class TermSageCompleter(Completer):
     def _get_models(self) -> List[Dict[str, str]]:
         """
         Get available Ollama models.
-        
+
         Returns:
             List of model dictionaries with name, tag, etc.
         """
@@ -165,7 +162,7 @@ class TermSageCompleter(Completer):
                 return self.get_ollama_models()
         except Exception:
             pass
-        
+
         # Return empty list if function is not available or fails
         return []
 
@@ -195,11 +192,11 @@ def get_style_for_completion():
 def setup_completer(get_ollama_models_func=None):
     """
     Set up and return a configured TermSage completer.
-    
+
     Args:
         get_ollama_models_func: Function to get Ollama models
-        
+
     Returns:
         Configured TermSageCompleter instance
     """
-    return TermSageCompleter(get_ollama_models_func) 
+    return TermSageCompleter(get_ollama_models_func)

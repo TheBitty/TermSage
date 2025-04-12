@@ -7,4 +7,5 @@ ollama==0.4.7
 # Development dependencies
 pytest==7.4.3
 black==23.12.1
-flake8==7.0.0 
+flake8==7.0.0
+pytest-cov==4.1.0 
