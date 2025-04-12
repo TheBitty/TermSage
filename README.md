@@ -1,6 +1,12 @@
 # TermSage
 
+<<<<<<< HEAD
 <h1 align="center">🧙‍♂️ TermSage 🧙‍♂️</h1>
+=======
+<p align="center">
+  <img src="file:///Users/leog/Documents/tech-wizard-character-illustration-business-technology-brand-design-concept-vector.jpg" alt="TermSage Logo" width="150" height="150">
+</p>
+>>>>>>> 4b520e69706658b5b0270f5b8c0646fe8ed28363
 
 <p align="center">
   <strong>The intelligent terminal interface for Ollama language models</strong>
