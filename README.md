@@ -1,7 +1,8 @@
 # TermSage
 
 <p align="center">
-  <img src="https://via.placeholder.com/150?text=TermSage" alt="TermSage Logo" width="150" height="150">
+  <img src="![tech-wizard-character-illustration-business-technology-brand-design-concept-vector](https://github.com/user-attachments/assets/ff390bbf-f616-4c13-b96c-d6fdc398add5)
+" alt="TermSage Logo" width="150" height="150">
 </p>
 
 <p align="center">
