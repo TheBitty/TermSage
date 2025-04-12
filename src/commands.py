@@ -6,6 +6,9 @@ This module contains command handler classes for executing CLI commands.
 
 import os
 import sys
+import subprocess
+import shlex
+import re
 
 try:
     from ollama import interactive_chat_session, generate_text
@@ -30,6 +33,7 @@ class CommandHandler:
         self.model_manager = model_manager
         self.settings_manager = settings_manager
         self.completer = completer
+        self.current_dir = os.getcwd()
 
         # Command handlers mapped to methods
         self.commands = {
@@ -44,7 +48,12 @@ class CommandHandler:
             "generate": self.generate_text,
             "settings": self.settings_manager.show_settings_menu,
             "config": self.settings_manager.show_settings_menu,
+            "cd": self.change_directory,
+            "pwd": self.print_working_directory,
         }
+
+        # Internal commands that shouldn't be executed as system commands
+        self.internal_commands = set(self.commands.keys())
 
     def execute_command(self, cmd, args):
         """
@@ -57,14 +66,119 @@ class CommandHandler:
         if cmd in self.commands:
             self.commands[cmd](args)
         else:
-            print(f"Unknown command: {cmd}")
-            print("Type 'help' for available commands.")
+            # If not an internal command, try to execute as a system command
+            success = self.execute_system_command(cmd, args)
+            if not success:
+                print(f"Unknown command: {cmd}")
+                print("Type 'help' for available commands.")
+
+    def execute_system_command(self, cmd, args):
+        """
+        Execute a system command using subprocess.
+
+        Args:
+            cmd: Command name
+            args: Command arguments
+
+        Returns:
+            bool: True if command execution was attempted, False if command not found
+        """
+        # Skip execution if this is an internal command (should be handled separately)
+        if cmd in self.internal_commands:
+            return False
+
+        try:
+            # Check if command contains shell metacharacters (pipes, redirects, etc.)
+            full_cmd_str = cmd + " " + " ".join(args)
+            has_shell_metacharacters = re.search(r'[|><&;]', full_cmd_str) is not None
+            
+            if has_shell_metacharacters:
+                # Execute with shell=True for commands with pipes, redirects, etc.
+                result = subprocess.run(
+                    full_cmd_str,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    cwd=self.current_dir
+                )
+            else:
+                # For simple commands, use the safer list form
+                full_cmd = [cmd] + args
+                
+                # Execute the command and capture output
+                result = subprocess.run(
+                    full_cmd, 
+                    capture_output=True, 
+                    text=True,
+                    check=False,  # Don't raise exception on non-zero exit code
+                    cwd=self.current_dir
+                )
+            
+            # Display standard output if any
+            if result.stdout:
+                print(result.stdout.rstrip())
+            
+            # Display error output if any
+            if result.stderr:
+                print(result.stderr.rstrip(), file=sys.stderr)
+            
+            # Return success based on whether the command was found and executed
+            return True
+        except FileNotFoundError:
+            # Command not found
+            print(f"Command not found: {cmd}")
+            return True
+        except Exception as e:
+            # Other execution errors
+            print(f"Error executing command: {e}")
+            return True
+
+    def change_directory(self, args):
+        """
+        Change the current working directory.
+        
+        Args:
+            args: Directory to change to
+        """
+        # Default to home directory if no args
+        target_dir = os.path.expanduser("~") if not args else args[0]
+        
+        try:
+            # Expand user directory if ~ is used
+            target_dir = os.path.expanduser(target_dir)
+            
+            # Change to the directory
+            os.chdir(target_dir)
+            self.current_dir = os.getcwd()
+            print(self.current_dir)
+        except FileNotFoundError:
+            print(f"Directory not found: {target_dir}")
+        except PermissionError:
+            print(f"Permission denied: {target_dir}")
+        except Exception as e:
+            print(f"Error changing directory: {e}")
+
+    def print_working_directory(self, args):
+        """Print the current working directory."""
+        print(self.current_dir)
 
     def show_help(self, args):
         """Show help information for commands."""
         print("Available commands:")
+        print("\nTermSage commands:")
         for cmd, description in sorted(self.completer.base_commands.items()):
             print(f"  {cmd:<12} - {description}")
+        
+        print("\nBuilt-in shell commands:")
+        print("  cd           - Change directory")
+        print("  pwd          - Print working directory")
+        
+        print("\nYou can also run any system command directly (e.g., ls, git, python).")
+        print("TermSage supports pipes, redirections, and other shell features.")
+        print("Examples:")
+        print("  ls -la | grep .py")
+        print("  echo 'Hello, world!' > file.txt")
 
     def exit_app(self, args):
         """Exit the application."""

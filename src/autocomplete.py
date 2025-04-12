@@ -8,6 +8,8 @@ TermSage command-line interface.
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.formatted_text import HTML
 from typing import List, Dict, Callable, Optional, Iterable
+import os
+import shutil
 
 # Avoid circular imports
 OllamaModelGetterType = Callable[[], List[Dict[str, str]]]
@@ -45,6 +47,37 @@ class TermSageCompleter(Completer):
             "reset": "Reset the chat history",
             "save": "Save the chat history to a file",
             "load": "Load a model",
+            "settings": "Configure TermSage settings",
+            "config": "Configure TermSage settings",
+        }
+
+        # Common system commands for auto-completion
+        self.system_commands = {
+            "ls": "List directory contents",
+            "cd": "Change directory",
+            "pwd": "Print working directory",
+            "mkdir": "Make directories",
+            "rm": "Remove files or directories",
+            "cp": "Copy files or directories",
+            "mv": "Move or rename files or directories",
+            "cat": "Display file contents",
+            "grep": "Search for patterns in files",
+            "echo": "Display a line of text",
+            "find": "Find files",
+            "touch": "Create empty files or update timestamps",
+            "chmod": "Change file permissions",
+            "chown": "Change file owner and group",
+            "ps": "Report process status",
+            "kill": "Terminate processes",
+            "top": "Display system tasks",
+            "git": "Version control system",
+            "ssh": "Secure shell client",
+            "scp": "Secure copy",
+            "tar": "Tape archive utility",
+            "unzip": "Extract files from zip archives",
+            "curl": "Transfer data from or to a server",
+            "wget": "Download files from the web",
+            "sudo": "Execute a command as another user",
         }
 
         # Temperature suggestions
@@ -89,6 +122,7 @@ class TermSageCompleter(Completer):
 
         # Handle empty input - suggest base commands
         if not text or not word_count:
+            # First suggest TermSage commands
             for cmd, description in sorted(self.base_commands.items()):
                 yield Completion(
                     cmd,
@@ -96,6 +130,16 @@ class TermSageCompleter(Completer):
                     display=self._format_command_display(cmd, description),
                     style="class:completion",
                 )
+            
+            # Then suggest system commands
+            for cmd, description in sorted(self.system_commands.items()):
+                if shutil.which(cmd):  # Only suggest commands that exist on the system
+                    yield Completion(
+                        cmd,
+                        start_position=-len(word_before_cursor),
+                        display=self._format_system_command_display(cmd, description),
+                        style="class:completion.system",
+                    )
             return
 
         # Context: After 'model' command, suggest Ollama models
@@ -140,7 +184,8 @@ class TermSageCompleter(Completer):
                 )
             return
 
-        # Default: Suggest base commands that match the prefix
+        # Default: Suggest commands that match the prefix
+        # First check TermSage commands
         for cmd, description in sorted(self.base_commands.items()):
             if cmd.startswith(word_before_cursor):
                 yield Completion(
@@ -148,6 +193,16 @@ class TermSageCompleter(Completer):
                     start_position=-len(word_before_cursor),
                     display=self._format_command_display(cmd, description),
                     style="class:completion",
+                )
+        
+        # Then check system commands
+        for cmd, description in sorted(self.system_commands.items()):
+            if cmd.startswith(word_before_cursor) and shutil.which(cmd):
+                yield Completion(
+                    cmd,
+                    start_position=-len(word_before_cursor),
+                    display=self._format_system_command_display(cmd, description),
+                    style="class:completion.system",
                 )
 
     def _get_models(self) -> List[Dict[str, str]]:
@@ -170,6 +225,10 @@ class TermSageCompleter(Completer):
         """Format a command completion with description."""
         return HTML(f"<ansiblue>{cmd}</ansiblue> - <ansigray>{description}</ansigray>")
 
+    def _format_system_command_display(self, cmd: str, description: str) -> HTML:
+        """Format a system command completion with description."""
+        return HTML(f"<ansigreen>{cmd}</ansigreen> - <ansigray>{description}</ansigray>")
+
     def _format_model_display(self, name: str, metadata: str) -> HTML:
         """Format a model completion with metadata."""
         return HTML(f"<ansigreen>{name}</ansigreen> <ansigray>({metadata})</ansigray>")
@@ -183,6 +242,7 @@ def get_style_for_completion():
     """Return style definitions for completions."""
     return {
         "completion": "bg:#008800 #ffffff",
+        "completion.system": "bg:#004488 #ffffff",
         "completion.model": "bg:#000088 #ffffff",
         "completion.tag": "bg:#884400 #ffffff",
         "completion.temperature": "bg:#880000 #ffffff",
