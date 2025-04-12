@@ -2,7 +2,7 @@
 Tests for the main module.
 """
 
-from src.main import main
+from venv.src import main
 
 
 def test_main(capsys):

@@ -2,6 +2,30 @@ import subprocess
 import ollama
 import time
 import platform
+import os
+
+try:
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.history import InMemoryHistory
+    from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+    from prompt_toolkit.formatted_text import HTML
+    from prompt_toolkit.styles import Style
+    from prompt_toolkit.completion import WordCompleter
+
+    PROMPT_TOOLKIT_AVAILABLE = True
+except ImportError:
+    PROMPT_TOOLKIT_AVAILABLE = False
+
+# Avoid circular imports by using optional imports
+try:
+    from autocomplete import TermSageCompleter, get_style_for_completion, setup_completer
+except ImportError:
+    try:
+        from src.autocomplete import TermSageCompleter, get_style_for_completion, setup_completer
+    except ImportError:
+        TermSageCompleter = None
+        get_style_for_completion = None
+        setup_completer = None
 
 
 # Supported model types like llama2, gemma3, etc.
@@ -26,10 +50,14 @@ def ollama_start():
             # Determine the appropriate command based on the OS
             if platform.system() == "Windows":
                 # On Windows, need to use full path or ensure it's in PATH
-                subprocess.Popen(["ollama", "serve"], start_new_session=True)
+                subprocess.Popen(
+                    ["ollama", "serve"], start_new_session=True
+                )
             else:
                 # On Unix-like systems (Linux, macOS)
-                subprocess.Popen(["ollama", "serve"], start_new_session=True)
+                subprocess.Popen(
+                    ["ollama", "serve"], start_new_session=True
+                )
 
             print("Starting Ollama service...")
 
@@ -75,11 +103,11 @@ def get_ollama_models():
                 parts = line.split()
                 if len(parts) >= 5:
                     model_info = {
-                        "name": parts[0],
-                        "tag": parts[1],
-                        "id": parts[2],
-                        "size": parts[3],
-                        "modified": " ".join(parts[4:]),
+                        'name': parts[0],
+                        'tag': parts[1],
+                        'id': parts[2],
+                        'size': parts[3],
+                        'modified': ' '.join(parts[4:])
                     }
                     models.append(model_info)
 
@@ -92,13 +120,13 @@ def get_ollama_models():
 def generate_text(model_name, prompt, system_prompt=None, temperature=0.7):
     """
     Generate text using Ollama API
-
+    
     Args:
         model_name (str): The name of the model to use (e.g., 'llama2:latest')
         prompt (str): The input prompt for text generation
         system_prompt (str, optional): System instructions for the model
         temperature (float, optional): Controls randomness (0.0-1.0)
-
+        
     Returns:
         str: The generated text response
     """
@@ -108,44 +136,56 @@ def generate_text(model_name, prompt, system_prompt=None, temperature=0.7):
             print("Ollama service is not running")
             if not ollama_start():
                 return "Error: Could not start Ollama service"
-
+        
         # Generate the response
-        options = {"temperature": temperature}
-
+        options = {
+            'temperature': temperature
+        }
+        
         if system_prompt:
-            options["system"] = system_prompt
-
+            options['system'] = system_prompt
+            
         # Use the Ollama client library to generate text
         try:
             response = ollama.generate(
-                model=model_name, prompt=prompt, options=options
+                model=model_name,
+                prompt=prompt,
+                options=options
             )
-            return response["response"]
+            return response['response']
         except AttributeError:
             # Fallback to subprocess if library API changes
             cmd = [
-                "ollama",
-                "run",
-                model_name,
-                "-p",
-                prompt,
-                "--temperature",
-                str(temperature),
+                "ollama", "run", model_name, 
+                "-p", prompt, 
+                "--temperature", str(temperature)
             ]
             if system_prompt:
                 cmd.extend(["--system", system_prompt])
-
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            result = subprocess.run(
+                cmd, capture_output=True, text=True
+            )
             return result.stdout.strip()
-
+        
     except Exception as e:
         return f"Error generating text: {str(e)}"
+
+
+def create_chat_completer():
+    """Create a completer for chat sessions with common commands and phrases."""
+    commands = [
+        'exit', 'quit', 'bye', 'help', 'clear', 'reset', 
+        'What is', 'How do I', 'Can you', 'Please explain',
+        'Tell me about', 'Write a', 'Compare', 'Summarize'
+    ]
+    return WordCompleter(commands, ignore_case=True)
 
 
 def interactive_chat_session(model_name, system_prompt=None):
     """
     Start an interactive chat session with an Ollama model
-
+    
     Args:
         model_name (str): The name of the model to use (e.g., 'llama2:latest')
         system_prompt (str, optional): System instructions for the model
@@ -157,71 +197,148 @@ def interactive_chat_session(model_name, system_prompt=None):
             if not ollama_start():
                 print("Error: Could not start Ollama service")
                 return
-
+        
         # Clean up model name - in case it has extra colons from ID
         # Format should be name:tag
-        if model_name.count(":") > 1:
-            parts = model_name.split(":")
+        if model_name.count(':') > 1:
+            parts = model_name.split(':')
             if len(parts) >= 2:
                 # Just use the first two parts (name and tag)
                 model_name = f"{parts[0]}:{parts[1]}"
                 print(f"Using simplified model name: {model_name}")
-
+        
         print(f"Starting chat session with {model_name}")
         print("Type 'exit' to end the conversation")
-
+        
         # Create messages list with system prompt if provided
         messages = []
         if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-
-        # Start the conversation loop
-        while True:
-            # Get user input
-            user_input = input("\nYou: ")
-
-            # Check for exit command
-            if user_input.lower() in ["exit", "quit", "bye"]:
-                print("Ending chat session")
-                break
-
-            # Add user message to history
-            messages.append({"role": "user", "content": user_input})
-
-            try:
-                # Generate response using Ollama API
+            messages.append({'role': 'system', 'content': system_prompt})
+        
+        # Set up prompt_toolkit if available
+        if PROMPT_TOOLKIT_AVAILABLE:
+            # Create a history instance for the session
+            history = InMemoryHistory()
+            
+            # Set up the completer
+            chat_completer = create_chat_completer()
+            
+            # Set up the prompt session with styling
+            style = Style.from_dict({
+                'prompt': 'ansimagenta bold',
+            })
+            
+            session = PromptSession(
+                history=history,
+                auto_suggest=AutoSuggestFromHistory(),
+                completer=chat_completer,
+                style=style,
+                complete_in_thread=True
+            )
+            
+            # Start the conversation loop
+            while True:
                 try:
-                    response = ollama.chat(model=model_name, messages=messages)
-
-                    # Extract and print assistant's response
-                    assistant_message = response["message"]["content"]
-                    print(f"\nAssistant: {assistant_message}")
-
-                    # Add assistant message to history
-                    messages.append(
-                        {"role": "assistant", "content": assistant_message}
-                    )
-                except AttributeError:
-                    # Fallback to subprocess if API changes
-                    print(
-                        f"\nAssistant: Using {model_name} with prompt: "
-                        f"{user_input}"
-                    )
-                    messages.append(
-                        {
-                            "role": "assistant",
-                            "content": "Response via subprocess",
-                        }
-                    )
-
-            except Exception as e:
-                print(f"Error in chat: {str(e)}")
-                if "model is required" in str(e):
-                    print(
-                        f"The model '{model_name}' could not be found. "
-                        "Please check the model name."
-                    )
+                    # Get user input with auto-completion
+                    user_input = session.prompt(HTML("<ansimagenta>You:</ansimagenta> "))
+                    
+                    # Check for exit command
+                    if user_input.lower() in ['exit', 'quit', 'bye']:
+                        print("Ending chat session")
+                        break
+                    
+                    # Add user message to history
+                    messages.append({'role': 'user', 'content': user_input})
+                    
+                    try:
+                        # Generate response using Ollama API
+                        try:
+                            response = ollama.chat(
+                                model=model_name,
+                                messages=messages
+                            )
+                            
+                            # Extract and print assistant's response
+                            assistant_message = response['message']['content']
+                            print(f"\nAssistant: {assistant_message}")
+                            
+                            # Add assistant message to history
+                            messages.append(
+                                {'role': 'assistant', 'content': assistant_message}
+                            )
+                        except AttributeError:
+                            # Fallback to subprocess if API changes
+                            print(
+                                f"\nAssistant: Using {model_name} with prompt: "
+                                f"{user_input}"
+                            )
+                            messages.append(
+                                {'role': 'assistant', 'content': "Response via subprocess"}
+                            )
+                        
+                    except Exception as e:
+                        print(f"Error in chat: {str(e)}")
+                        if "model is required" in str(e):
+                            print(
+                                f"The model '{model_name}' could not be found. "
+                                "Please check the model name."
+                            )
+                            break
+                
+                except KeyboardInterrupt:
+                    print("\nOperation cancelled.")
+                    continue
+                except EOFError:
+                    print("\nExiting chat.")
                     break
-
+        else:
+            # Fall back to standard input if prompt_toolkit is not available
+            while True:
+                # Get user input
+                user_input = input("\nYou: ")
+                
+                # Check for exit command
+                if user_input.lower() in ['exit', 'quit', 'bye']:
+                    print("Ending chat session")
+                    break
+                
+                # Add user message to history
+                messages.append({'role': 'user', 'content': user_input})
+                
+                try:
+                    # Generate response using Ollama API
+                    try:
+                        response = ollama.chat(
+                            model=model_name,
+                            messages=messages
+                        )
+                        
+                        # Extract and print assistant's response
+                        assistant_message = response['message']['content']
+                        print(f"\nAssistant: {assistant_message}")
+                        
+                        # Add assistant message to history
+                        messages.append(
+                            {'role': 'assistant', 'content': assistant_message}
+                        )
+                    except AttributeError:
+                        # Fallback to subprocess if API changes
+                        print(
+                            f"\nAssistant: Using {model_name} with prompt: "
+                            f"{user_input}"
+                        )
+                        messages.append(
+                            {'role': 'assistant', 'content': "Response via subprocess"}
+                        )
+                    
+                except Exception as e:
+                    print(f"Error in chat: {str(e)}")
+                    if "model is required" in str(e):
+                        print(
+                            f"The model '{model_name}' could not be found. "
+                            "Please check the model name."
+                        )
+                        break
+                
     except Exception as e:
         print(f"Error in chat session: {str(e)}")

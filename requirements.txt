@@ -1,6 +1,8 @@
 # Core dependencies
 python-dotenv==1.0.0
 requests==2.31.0
+prompt-toolkit==3.0.41
+ollama==0.4.7
 
 # Development dependencies
 pytest==7.4.3
