@@ -33,15 +33,18 @@ class SettingsManager:
                 "You are a helpful AI assistant. Answer the user's questions concisely and accurately.",
             )
 
+        ai_suggestions_enabled = self.config.get("ai_suggestions_enabled", True)
+
         print("\nSettings:")
         print(f"  1. Active Model: {active_model or 'None'}")
         print(f"  2. Temperature: {temperature}")
         print(f"  3. System Prompt: {system_prompt[:50]}...")
         print(f"  4. Auto-start Ollama: {self.config.get('auto_start_ollama', True)}")
+        print(f"  5. AI Command Suggestions: {'Enabled' if ai_suggestions_enabled else 'Disabled'}")
         print("  0. Back to main menu")
 
         try:
-            choice = int(input("\nEnter your choice (0-4): "))
+            choice = int(input("\nEnter your choice (0-5): "))
 
             if choice == 0:
                 return
@@ -62,6 +65,8 @@ class SettingsManager:
                     self.set_system_prompt_interactive()
             elif choice == 4:
                 self.toggle_auto_start()
+            elif choice == 5:
+                self.toggle_ai_suggestions()
             else:
                 print("Invalid choice")
         except ValueError:
@@ -74,6 +79,15 @@ class SettingsManager:
         self.config.set("auto_start_ollama", new_value)
         self.config.save()
         print(f"Auto-start Ollama {'enabled' if new_value else 'disabled'}")
+
+    def toggle_ai_suggestions(self):
+        """Toggle AI command suggestions."""
+        current = self.config.get("ai_suggestions_enabled", True)
+        new_value = not current
+        self.config.set("ai_suggestions_enabled", new_value)
+        self.config.save()
+        print(f"AI command suggestions {'enabled' if new_value else 'disabled'}")
+        print("(Changes will take effect the next time you restart TermSage)")
 
     def set_temperature_interactive(self):
         """Set temperature interactively (when model_manager is not available)."""

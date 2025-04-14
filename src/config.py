@@ -25,6 +25,11 @@ DEFAULT_CONFIG = {
     },
     "history_limit": 100,
     "auto_start_ollama": True,
+    "ai_suggestions_enabled": True,
+    "suggestion_system_prompt": (
+        "You are a helpful command line assistant. "
+        "Suggest complete shell commands based on partial input or descriptions."
+    ),
 }
 
 

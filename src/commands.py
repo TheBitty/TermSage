@@ -9,11 +9,60 @@ import sys
 import subprocess
 import shlex
 import re
+import threading
+import select
+import signal
+import time
+import errno
 
 try:
     from ollama import interactive_chat_session, generate_text
 except ImportError:
     from src.ollama import interactive_chat_session, generate_text
+
+
+# Define helper functions for Windows input handling
+# This approach helps avoid linter errors while maintaining functionality
+def is_key_pressed(msvcrt_module):
+    """
+    Check if a key was pressed using msvcrt module.
+    
+    Args:
+        msvcrt_module: The msvcrt module
+        
+    Returns:
+        bool: True if a key was pressed, False otherwise
+    """
+    if not msvcrt_module:
+        return False
+    try:
+        return msvcrt_module.kbhit() if hasattr(msvcrt_module, 'kbhit') else False
+    except Exception:
+        return False
+
+
+def get_pressed_key(msvcrt_module):
+    """
+    Get the pressed key using msvcrt module.
+    
+    Args:
+        msvcrt_module: The msvcrt module
+        
+    Returns:
+        str: The pressed key or empty string on error
+    """
+    if not msvcrt_module:
+        return ''
+    try:
+        if hasattr(msvcrt_module, 'getch'):
+            char = msvcrt_module.getch()
+            # Decode the byte to string, handling any errors
+            if isinstance(char, bytes):
+                return char.decode('utf-8', errors='replace')
+            return char
+    except Exception:
+        pass
+    return ''
 
 
 class CommandHandler:
@@ -34,6 +83,8 @@ class CommandHandler:
         self.settings_manager = settings_manager
         self.completer = completer
         self.current_dir = os.getcwd()
+        self.current_process = None
+        self.process_running = False
 
         # Command handlers mapped to methods
         self.commands = {
@@ -54,6 +105,32 @@ class CommandHandler:
 
         # Internal commands that shouldn't be executed as system commands
         self.internal_commands = set(self.commands.keys())
+        
+        # Set up signal handler for Ctrl+C
+        self._setup_signal_handlers()
+
+    def _setup_signal_handlers(self):
+        """Set up signal handlers for graceful termination."""
+        # Store original SIGINT handler
+        self.original_sigint = signal.getsignal(signal.SIGINT)
+        
+        # Set new SIGINT handler to terminate child processes
+        signal.signal(signal.SIGINT, self._handle_interrupt)
+
+    def _handle_interrupt(self, sig, frame):
+        """Handle interrupt signal (Ctrl+C)."""
+        if self.process_running and self.current_process:
+            print("\nTerminating process...")
+            try:
+                self.current_process.terminate()
+            except Exception:
+                pass  # Ignore errors when terminating process
+            self.process_running = False
+        else:
+            # Restore original handler and re-raise the signal
+            signal.signal(signal.SIGINT, self.original_sigint)
+            if callable(self.original_sigint):
+                self.original_sigint(sig, frame)
 
     def execute_command(self, cmd, args):
         """
@@ -63,6 +140,10 @@ class CommandHandler:
             cmd: Command name
             args: Command arguments
         """
+        # Handle empty command
+        if not cmd:
+            return
+            
         if cmd in self.commands:
             self.commands[cmd](args)
         else:
@@ -74,7 +155,7 @@ class CommandHandler:
 
     def execute_system_command(self, cmd, args):
         """
-        Execute a system command using subprocess.
+        Execute a system command using subprocess with real-time output.
 
         Args:
             cmd: Command name
@@ -92,47 +173,315 @@ class CommandHandler:
             full_cmd_str = cmd + " " + " ".join(args)
             has_shell_metacharacters = re.search(r'[|><&;]', full_cmd_str) is not None
             
+            # Prepare environment with current directory
+            env = os.environ.copy()
+            
+            # Create the process with appropriate settings
             if has_shell_metacharacters:
-                # Execute with shell=True for commands with pipes, redirects, etc.
-                result = subprocess.run(
+                # For complex commands with shell metacharacters
+                self.current_process = subprocess.Popen(
                     full_cmd_str,
                     shell=True,
-                    capture_output=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    stdin=subprocess.PIPE,
                     text=True,
-                    check=False,
-                    cwd=self.current_dir
+                    bufsize=1,  # Line buffered
+                    cwd=self.current_dir,
+                    env=env
                 )
             else:
                 # For simple commands, use the safer list form
                 full_cmd = [cmd] + args
-                
-                # Execute the command and capture output
-                result = subprocess.run(
-                    full_cmd, 
-                    capture_output=True, 
+                self.current_process = subprocess.Popen(
+                    full_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    stdin=subprocess.PIPE,
                     text=True,
-                    check=False,  # Don't raise exception on non-zero exit code
-                    cwd=self.current_dir
+                    bufsize=1,  # Line buffered
+                    cwd=self.current_dir,
+                    env=env
                 )
             
-            # Display standard output if any
-            if result.stdout:
-                print(result.stdout.rstrip())
+            # Mark process as running
+            self.process_running = True
             
-            # Display error output if any
-            if result.stderr:
-                print(result.stderr.rstrip(), file=sys.stderr)
+            # Handle process I/O based on platform
+            try:
+                if os.name == 'nt':  # Windows doesn't support select on pipes
+                    self._handle_process_windows()
+                else:  # Unix-like systems
+                    self._handle_process_unix()
+            except Exception as e:
+                print(f"Error handling process I/O: {e}")
             
-            # Return success based on whether the command was found and executed
+            # Process completed
+            self.process_running = False
+            self.current_process = None
+            
             return True
+            
         except FileNotFoundError:
             # Command not found
             print(f"Command not found: {cmd}")
+            self.process_running = False
+            self.current_process = None
             return True
         except Exception as e:
             # Other execution errors
             print(f"Error executing command: {e}")
+            self.process_running = False
+            self.current_process = None
             return True
+
+    def _read_stdout_safely(self, stdout):
+        """
+        Safely read from stdout pipe.
+        
+        Args:
+            stdout: A pipe to read from
+            
+        Returns:
+            str: Line read or empty string on error
+        """
+        if not stdout:
+            return ""
+            
+        try:
+            line = stdout.readline()
+            return line
+        except (OSError, ValueError, AttributeError):
+            return ""
+
+    def _read_stderr_safely(self, stderr):
+        """
+        Safely read from stderr pipe.
+        
+        Args:
+            stderr: A pipe to read from
+            
+        Returns:
+            str: Line read or empty string on error
+        """
+        if not stderr:
+            return ""
+            
+        try:
+            line = stderr.readline()
+            return line
+        except (OSError, ValueError, AttributeError):
+            return ""
+
+    def _handle_process_unix(self):
+        """Handle process I/O for Unix-like systems using select."""
+        proc = self.current_process
+        if not proc:
+            return
+            
+        read_list = []
+        if proc.stdout:
+            read_list.append(proc.stdout)
+        if proc.stderr:
+            read_list.append(proc.stderr)
+        
+        if not read_list:
+            # If there are no pipes to read from, just wait for the process
+            try:
+                proc.wait()
+            except Exception:
+                pass
+            return
+            
+        # Set stdin to non-blocking mode
+        try:
+            import fcntl
+            orig_fl = fcntl.fcntl(sys.stdin, fcntl.F_GETFL)
+            fcntl.fcntl(sys.stdin, fcntl.F_SETFL, orig_fl | os.O_NONBLOCK)
+        except (ImportError, AttributeError):
+            orig_fl = None  # Can't set non-blocking mode
+        
+        try:
+            # Process I/O while the process is running
+            while proc and proc.poll() is None:
+                try:
+                    # Check if there's data to read (with timeout to avoid high CPU usage)
+                    r, _, _ = select.select(read_list + [sys.stdin], [], [], 0.1)
+                    
+                    # Handle stdout
+                    if proc.stdout in r:
+                        line = self._read_stdout_safely(proc.stdout)
+                        if line:
+                            print(line, end='', flush=True)
+                    
+                    # Handle stderr
+                    if proc.stderr in r:
+                        line = self._read_stderr_safely(proc.stderr)
+                        if line:
+                            print(line, end='', flush=True, file=sys.stderr)
+                    
+                    # Handle stdin (user input)
+                    if sys.stdin in r and proc.stdin:
+                        try:
+                            input_data = sys.stdin.readline()
+                            if input_data and proc and proc.poll() is None:
+                                proc.stdin.write(input_data)
+                                proc.stdin.flush()
+                        except (OSError, IOError, BrokenPipeError):
+                            # No input available or pipe closed
+                            pass
+                except (select.error, OSError) as e:
+                    # Handle select errors
+                    if hasattr(e, 'args') and e.args and e.args[0] != errno.EINTR:  # Ignore interrupted system call
+                        raise
+                    # Sleep a bit to avoid tight loop on errors
+                    time.sleep(0.1)
+            
+            # Read any remaining output
+            if proc and proc.stdout:
+                try:
+                    for line in proc.stdout:
+                        if line:
+                            print(line, end='', flush=True)
+                except (OSError, ValueError):
+                    pass
+                    
+            if proc and proc.stderr:
+                try:
+                    for line in proc.stderr:
+                        if line:
+                            print(line, end='', flush=True, file=sys.stderr)
+                except (OSError, ValueError):
+                    pass
+                    
+        finally:
+            # Restore stdin to blocking mode if we changed it
+            if orig_fl is not None:
+                try:
+                    fcntl.fcntl(sys.stdin, fcntl.F_SETFL, orig_fl)
+                except (OSError, IOError):
+                    pass  # Ignore errors when restoring
+        
+        # Get the return code
+        try:
+            if proc:
+                return_code = proc.wait(timeout=1)
+                if return_code != 0:
+                    print(f"\nCommand exited with status {return_code}", file=sys.stderr)
+        except (subprocess.TimeoutExpired, AttributeError):
+            # Process didn't terminate within timeout or proc is None
+            print("\nProcess is still running. Terminating...", file=sys.stderr)
+            try:
+                if proc:
+                    proc.terminate()
+                    proc.wait(timeout=1)
+            except Exception:
+                # Force kill if terminate fails
+                try:
+                    if proc:
+                        proc.kill()
+                        proc.wait(timeout=1)
+                except Exception:
+                    print("\nFailed to terminate process", file=sys.stderr)
+
+    def _handle_process_windows(self):
+        """Handle process I/O for Windows systems."""
+        proc = self.current_process
+        if not proc:
+            return
+            
+        # Create threads for reading output
+        def read_stdout():
+            if not proc or not proc.stdout:
+                return
+                
+            try:
+                for line in iter(lambda: self._read_stdout_safely(proc.stdout), ''):
+                    if line:
+                        print(line, end='', flush=True)
+            except (OSError, ValueError, AttributeError):
+                pass  # Handle pipe closed errors
+        
+        def read_stderr():
+            if not proc or not proc.stderr:
+                return
+                
+            try:
+                for line in iter(lambda: self._read_stderr_safely(proc.stderr), ''):
+                    if line:
+                        print(line, end='', flush=True, file=sys.stderr)
+            except (OSError, ValueError, AttributeError):
+                pass  # Handle pipe closed errors
+        
+        # Set up threads for reading stdout and stderr
+        stdout_thread = threading.Thread(target=read_stdout)
+        stderr_thread = threading.Thread(target=read_stderr)
+        
+        stdout_thread.daemon = True
+        stderr_thread.daemon = True
+        
+        stdout_thread.start()
+        stderr_thread.start()
+        
+        # Handle stdin - pass input to process
+        has_input_error = False
+        
+        # Try to import msvcrt for Windows-specific input handling
+        msvcrt = None
+        try:
+            # Dynamic import for msvcrt to avoid import errors on non-Windows platforms
+            import msvcrt as _msvcrt
+            msvcrt = _msvcrt
+        except ImportError:
+            has_input_error = True
+        
+        while proc and proc.poll() is None and not has_input_error:
+            try:
+                # Check if there's input available on Windows
+                if sys.stdin.isatty() and proc.stdin and msvcrt:
+                    try:
+                        # Use the helper functions to avoid linter errors
+                        if is_key_pressed(msvcrt):
+                            char = get_pressed_key(msvcrt)
+                            if char:
+                                if char == '\r':
+                                    proc.stdin.write('\n')
+                                else:
+                                    proc.stdin.write(char)
+                                proc.stdin.flush()
+                    except Exception:
+                        # If any error occurs with input, stop trying
+                        has_input_error = True
+                
+                # Small sleep to reduce CPU usage
+                time.sleep(0.05)
+            except Exception:
+                has_input_error = True
+        
+        # Wait for threads to complete
+        stdout_thread.join(timeout=1)
+        stderr_thread.join(timeout=1)
+        
+        # Get the return code
+        try:
+            if proc:
+                return_code = proc.wait(timeout=1)
+                if return_code != 0:
+                    print(f"\nCommand exited with status {return_code}", file=sys.stderr)
+        except (subprocess.TimeoutExpired, AttributeError):
+            # Process didn't terminate within timeout or proc is None
+            print("\nProcess is still running. Terminating...", file=sys.stderr)
+            try:
+                if proc:
+                    proc.terminate()
+                    proc.wait(timeout=1)
+            except Exception:
+                # Force kill if terminate fails
+                try:
+                    if proc:
+                        proc.kill()
+                except Exception:
+                    print("\nFailed to terminate process", file=sys.stderr)
 
     def change_directory(self, args):
         """
@@ -179,6 +528,15 @@ class CommandHandler:
         print("Examples:")
         print("  ls -la | grep .py")
         print("  echo 'Hello, world!' > file.txt")
+        print("  sudo apt update")
+        print("  nmap -sP 192.168.1.0/24")
+        
+        print("\nKeyboard shortcuts:")
+        print("  F1           - Toggle AI suggestions on/off")
+        print("  Tab          - Accept AI suggestion (when available)")
+        print("  Alt+S        - Request AI suggestion for current input")
+        print("  Ctrl+C       - Cancel current command")
+        print("  Ctrl+D       - Exit TermSage")
 
     def exit_app(self, args):
         """Exit the application."""
