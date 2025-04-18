@@ -34,6 +34,7 @@ class TermSageCLI:
         """Initialize the TermSage CLI."""
         # Dynamic imports to avoid circular dependencies
         # We import these at runtime to avoid circular imports
+        self.ai_thread = None
         try:
             models_module = importlib.import_module('models')
             settings_module = importlib.import_module('settings')
@@ -148,7 +149,7 @@ class TermSageCLI:
 
     def _start_ai_suggestion_thread(self):
         """Start a thread to generate AI suggestions."""
-        if not hasattr(self, 'ai_thread') or not self.ai_thread.is_alive():
+        if not hasattr(self, 'ai_thread') or self.ai_thread is None or not self.ai_thread.is_alive():
             self.ai_thread = threading.Thread(target=self._ai_suggestion_worker, daemon=True)
             self.ai_thread.start()
 
@@ -168,6 +169,10 @@ class TermSageCLI:
                 # Only generate suggestions for meaningful input
                 if len(current_text) >= 2:
                     try:
+                        # Check if we have a model to use for suggestions
+                        if not self.model_manager.active_model:
+                            continue
+                            
                         suggestion = self._generate_command_suggestion(current_text)
                         
                         # Update suggestion with lock to avoid race conditions
@@ -176,8 +181,10 @@ class TermSageCLI:
                             if current_text == self.current_input:
                                 self.ai_suggestion = suggestion
                     except Exception as e:
-                        # Silently fail to not disrupt the user
-                        self.ai_suggestion = None
+                        # Print error for debugging purposes
+                        print(f"AI suggestion error: {str(e)}")
+                        with self.ai_suggestion_lock:
+                            self.ai_suggestion = None
             
             # Reset explicit request flag
             self.ai_suggestion_requested = False
@@ -207,19 +214,31 @@ Context: The working directory is {os.getcwd()}.
 If this is a valid command already, just repeat it. If it's a natural language request, suggest the appropriate shell command.
 Remember, respond with JUST the command, nothing else."""
         
-        # Get command suggestion from Ollama
-        suggestion = generate_text(
-            self.model_manager.active_model,
-            user_prompt,
-            system_prompt=system_prompt,
-            temperature=0.3,  # Lower temperature for more predictable results
-        )
-        
-        # If suggestion same as input, return None
-        if suggestion.strip() == text.strip() or not suggestion.strip():
-            return None
+        try:
+            # Get command suggestion from Ollama
+            suggestion = generate_text(
+                self.model_manager.active_model,
+                user_prompt,
+                system_prompt=system_prompt,
+                temperature=0.3,  # Lower temperature for more predictable results
+            )
             
-        return suggestion.strip()
+            # Basic validation
+            if not suggestion or not isinstance(suggestion, str):
+                return None
+                
+            # Clean up suggestion
+            suggestion = suggestion.strip()
+            
+            # If suggestion same as input or empty, return None
+            if suggestion == text.strip() or not suggestion:
+                return None
+                
+            return suggestion
+            
+        except Exception as e:
+            print(f"Error generating suggestion: {str(e)}")
+            return None
 
     def show_prompt(self):
         """Show the command prompt with current model info."""
@@ -284,7 +303,8 @@ Remember, respond with JUST the command, nothing else."""
                 def get_continuation(width, line_number, wrap_count):
                     if current_suggestion and line_number == 0 and wrap_count == 0:
                         # If suggestion is available, show it greyed out
-                        return HTML(f"<class:ai_suggestion> {current_suggestion}</class:ai_suggestion>")
+                        if isinstance(current_suggestion, str) and current_suggestion.strip():
+                            return HTML(f"<class:ai_suggestion> {current_suggestion}</class:ai_suggestion>")
                     return None
                 
                 # Get command with auto-completion

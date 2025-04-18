@@ -33,7 +33,7 @@ class TermSageCompleter(Completer):
         self.get_ollama_models = get_ollama_models_func
 
         # Base commands with descriptions
-        self.base_commands = {
+        self.base_commands = { # this should 
             "exit": "Exit TermSage",
             "quit": "Exit TermSage",
             "help": "Show available commands and help",

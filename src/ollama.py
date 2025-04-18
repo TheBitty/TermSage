@@ -421,3 +421,30 @@ def interactive_chat_session(model_name, system_prompt=None):
 
     except Exception as e:
         print(f"Error in chat session: {str(e)}")
+
+
+def chat_with_model(model_name, system_prompt=None):
+    """
+    Start an interactive chat session with an Ollama model.
+    This function is activated when the user wants to chat with their LLM.
+
+    Args:
+        model_name (str): The name of the model to use (e.g., 'llama2:latest')
+        system_prompt (str, optional): Custom system prompt to use for the chat session
+    
+    Returns:
+        None: This function doesn't return a value, it runs an interactive session
+    """
+    try:
+        # Check if Ollama is running
+        if not is_ollama_active():
+            print("Ollama service is not running")
+            if not ollama_start():
+                print("Error: Could not start Ollama service")
+                return
+    except Exception as e:
+        print(f"Error in chat session: {str(e)}")
+    else:
+        # Start the interactive chat session with the specified model
+        interactive_chat_session(model_name, system_prompt)
+
